@@ -77,6 +77,7 @@ function sanitizeErrorMessage(errorMessage: string): string {
     /"access_token":\s*"[^"]+"/gi,         // JSON access_token fields
     /"refresh_token":\s*"[^"]+"/gi,        // JSON refresh_token fields
     /"cognito_tokens":\s*"[^"]+"/gi,       // JSON cognito_tokens fields
+    /"workos_tokens":\s*"[^"]+"/gi,        // JSON workos_tokens fields
     /eyJ[A-Za-z0-9\-._~+/]*={0,2}/g,       // JWT tokens (start with eyJ)
   ];
 
@@ -108,14 +109,16 @@ export default async function getAccessToken(): Promise<string> {
       const fileContent = await readFileWithRetry(filePath, 3, 100);
       const jsonData = JSON.parse(fileContent);
 
-      let cognitoTokens;
+      // Support both WorkOS (new) and Cognito (old) authentication
+      const rawTokens = jsonData.workos_tokens ?? jsonData.cognito_tokens;
+      let tokens;
       try {
-        if (typeof jsonData.cognito_tokens === "string") {
-          cognitoTokens = JSON.parse(jsonData.cognito_tokens);
-        } else if (typeof jsonData.cognito_tokens === "object" && jsonData.cognito_tokens !== null) {
-          cognitoTokens = jsonData.cognito_tokens;
+        if (typeof rawTokens === "string") {
+          tokens = JSON.parse(rawTokens);
+        } else if (typeof rawTokens === "object" && rawTokens !== null) {
+          tokens = rawTokens;
         } else {
-          throw new Error("cognito_tokens is neither a valid JSON string nor an object");
+          throw new Error("No valid token data found (expected workos_tokens or cognito_tokens)");
         }
       } catch (error) {
         const parseError = error instanceof Error ? error : new Error(String(error));
@@ -123,7 +126,7 @@ export default async function getAccessToken(): Promise<string> {
         throw new Error(`Failed to parse local access token: ${sanitizedMessage}`);
       }
 
-      const accessToken = cognitoTokens.access_token;
+      const accessToken = tokens.access_token;
       if (!accessToken) {
         throw new Error("Access token not found in configuration file");
       }
